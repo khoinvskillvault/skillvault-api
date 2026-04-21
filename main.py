@@ -9,7 +9,7 @@ app = FastAPI()
 @app.get("/api/stock/{symbol}")
 def get_stock(symbol: str):
     try:
-        # Cách gọi dữ liệu trực tiếp, bỏ qua bước khởi tạo object phức tạp
+        # Lưu ý: Các dòng dưới đây đều phải thụt lề vào trong
         stock = Vnstock().stock(symbol=symbol.upper(), source='TCBS')
         price_df = stock.trading.price_board()
         
