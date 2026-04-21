@@ -1,5 +1,4 @@
 import os
-# Ép hệ thống dùng thư mục tạm ngay lập tức
 os.environ['VNSTOCK_CONFIG_DIR'] = '/tmp'
 
 from fastapi import FastAPI
@@ -10,21 +9,18 @@ app = FastAPI()
 @app.get("/api/stock/{symbol}")
 def get_stock(symbol: str):
     try:
-        # 1. Khởi tạo vnstock
+        # Cách gọi dữ liệu trực tiếp, bỏ qua bước khởi tạo object phức tạp
         stock = Vnstock().stock(symbol=symbol.upper(), source='TCBS')
+        price_df = stock.trading.price_board()
         
-        # 2. Lấy bảng giá trực tiếp (Price Board)
-        df = stock.trading.price_board()
-        
-        if df is not None and not df.empty:
-            # Lấy giá khớp lệnh
-            price = df.iloc[0].get('matchPrice', 0)
+        if price_df is not None and not price_df.empty:
+            current_price = price_df.iloc[0].get('matchPrice', 0)
             return {
                 "symbol": symbol.upper(),
-                "price": float(price),
+                "price": float(current_price),
                 "status": "success"
             }
-        return {"error": "No data found", "status": "error"}
+        return {"error": "No data", "status": "error"}
     except Exception as e:
         return {"error": str(e), "status": "error"}
 
