@@ -1,11 +1,13 @@
 import requests
 from fastapi import FastAPI
+from datetime import datetime, timedelta
 
 app = FastAPI()
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept": "application/json"
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json",
+    "Referer": "https://tcinvest.tcbs.com.vn/"
 }
 
 @app.get("/")
@@ -16,13 +18,18 @@ def home():
 def get_stock(symbol: str):
     sym = symbol.upper()
     try:
-        url = f"https://trading.vndirect.com.vn/priceservice/secinfo/snapshot?q=codes:{sym}"
+        to_ts   = int(datetime.now().timestamp())
+        from_ts = int((datetime.now() - timedelta(days=7)).timestamp())
+
+        url = (f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bar-time-series"
+               f"?ticker={sym}&type=stock&resolution=D&from={from_ts}&to={to_ts}")
+
         r = requests.get(url, headers=HEADERS, timeout=10)
-        data = r.json()
         return {
             "symbol": sym,
             "status": "success",
-            "data": data
+            "http_code": r.status_code,
+            "data": r.json()
         }
     except Exception as e:
         return {"symbol": sym, "error": str(e), "status": "error"}
