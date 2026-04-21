@@ -9,11 +9,12 @@ app = FastAPI()
 @app.get("/api/stock/{symbol}")
 def get_stock(symbol: str):
     try:
-        # Lưu ý: Các dòng dưới đây đều phải thụt lề vào trong
+        # Đoạn này thụt vào 4 khoảng trống (hoặc 1 phím Tab)
         stock = Vnstock().stock(symbol=symbol.upper(), source='TCBS')
         price_df = stock.trading.price_board()
         
         if price_df is not None and not price_df.empty:
+            # Đoạn này thụt vào thêm nữa
             current_price = price_df.iloc[0].get('matchPrice', 0)
             return {
                 "symbol": symbol.upper(),
