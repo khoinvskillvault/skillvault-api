@@ -1,14 +1,9 @@
 import requests
 from fastapi import FastAPI
-from datetime import datetime, timedelta
 
 app = FastAPI()
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json",
-    "Referer": "https://tcinvest.tcbs.com.vn/"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SkillVault/1.0)"}
 
 @app.get("/")
 def home():
@@ -18,18 +13,26 @@ def home():
 def get_stock(symbol: str):
     sym = symbol.upper()
     try:
-        to_ts   = int(datetime.now().timestamp())
-        from_ts = int((datetime.now() - timedelta(days=7)).timestamp())
-
-        url = (f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bar-time-series"
-               f"?ticker={sym}&type=stock&resolution=D&from={from_ts}&to={to_ts}")
-
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}.VN?interval=1d&range=5d"
         r = requests.get(url, headers=HEADERS, timeout=10)
+        raw = r.json()
+
+        result = raw.get("chart", {}).get("result", [])
+        if not result:
+            return {"symbol": sym, "status": "error", "error": "No data from Yahoo"}
+
+        meta = result[0].get("meta", {})
+        closes = result[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        latest_close = next((v for v in reversed(closes) if v is not None), None)
+
         return {
             "symbol": sym,
             "status": "success",
-            "http_code": r.status_code,
-            "data": r.json()
+            "price": latest_close,
+            "currency": meta.get("currency"),
+            "exchange": meta.get("exchangeName"),
+            "regular_market_price": meta.get("regularMarketPrice"),
+            "previous_close": meta.get("previousClose"),
         }
     except Exception as e:
         return {"symbol": sym, "error": str(e), "status": "error"}
