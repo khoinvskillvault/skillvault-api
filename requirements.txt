@@ -1,0 +1,4 @@
+fastapi
+vnstock3
+uvicorn
+pandas
