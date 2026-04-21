@@ -1,5 +1,3 @@
 fastapi
 uvicorn
-pandas
-vnstock==3.2.2
-httpx
+requests
