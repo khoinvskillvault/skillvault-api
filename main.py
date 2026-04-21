@@ -5,8 +5,7 @@ app = FastAPI()
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept": "application/json",
-    "Referer": "https://tcinvest.tcbs.com.vn/"
+    "Accept": "application/json"
 }
 
 @app.get("/")
@@ -17,7 +16,7 @@ def home():
 def get_stock(symbol: str):
     sym = symbol.upper()
     try:
-        url = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/t/{sym}"
+        url = f"https://trading.vndirect.com.vn/priceservice/secinfo/snapshot?q=codes:{sym}"
         r = requests.get(url, headers=HEADERS, timeout=10)
         data = r.json()
         return {
