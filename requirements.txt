@@ -1,4 +1,4 @@
 fastapi
-vnstock3
+vnstock3==3.0.2
 uvicorn
 pandas
