@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # ═══════════════════════════════════════════════════════════════════════════════
-# SKILLVAULT PHASE 1 - Vercel Serverless (api/index.py)
-# FIXED: Lazy Initialization + Error Handling + Reduced SYMBOLS for Testing
+# SKILLVAULT PHASE 1 - Vercel Serverless (api/index.py) - WITH DEBUG LOGGING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import os
@@ -17,18 +16,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════════════════
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 VNSTOCK_TOKEN = os.getenv("VNSTOCK_TOKEN", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# REDUCED: Only 3 symbols for testing (avoid timeout)
-SYMBOLS = ["TCB", "VHM", "BID"]  # Test with 3 symbols first
-
+SYMBOLS = ["TCB", "VHM", "BID"]
 FETCH_PERIOD = "1y"
 CONFIDENCE_THRESHOLDS = {
     "market_data": 80,
@@ -41,10 +34,8 @@ CONFIDENCE_THRESHOLDS = {
 logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-# ═══ FastAPI App ═══
 app = FastAPI(title="SkillVault ETL API", version="1.0.0")
 
-# ═══ Global Clients (Lazy Initialization) ═══
 supabase_client = None
 vnstock_client = None
 clients_initialized = False
@@ -52,11 +43,10 @@ init_error = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LAZY INITIALIZATION (không call ngay khi app start)
+# LAZY INITIALIZATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def init_clients_lazy():
-    """Initialize clients on-demand (Lazy Loading)"""
     global supabase_client, vnstock_client, clients_initialized, init_error
     
     if clients_initialized:
@@ -65,13 +55,11 @@ def init_clients_lazy():
     clients_initialized = True
     
     try:
-        # Validate env vars
         if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             init_error = "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY"
             logger.error(f"[INIT] {init_error}")
             return None, None, init_error
         
-        # Init Supabase
         try:
             from supabase import create_client
             supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -81,7 +69,6 @@ def init_clients_lazy():
             logger.error(f"[INIT] {init_error}")
             return None, None, init_error
         
-        # Init vnstock
         try:
             from vnstock import Vnstock
             vnstock_client = Vnstock()
@@ -100,7 +87,7 @@ def init_clients_lazy():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FETCH FUNCTIONS
+# FETCH FUNCTIONS (WITH DEBUG LOGGING)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_market_data(vnstock_client) -> List[pd.DataFrame]:
@@ -109,16 +96,24 @@ def fetch_market_data(vnstock_client) -> List[pd.DataFrame]:
     
     for symbol in SYMBOLS:
         try:
+            logger.info(f"  Fetching {symbol}...")
             df = vnstock_client.stock(symbol=symbol).history(period=FETCH_PERIOD)
+            logger.info(f"  {symbol}: raw df shape = {df.shape}")
+            
+            if len(df) == 0:
+                logger.warning(f"  {symbol}: df is EMPTY!")
+                continue
+            
             df['symbol'] = symbol
             df['source'] = 'vnstock'
             df['fetch_timestamp'] = datetime.utcnow().isoformat()
             df['confidence_score'] = 100
             market_data_list.append(df)
-            logger.info(f"  ✓ {symbol}: {len(df)} records")
+            logger.info(f"  ✓ {symbol}: {len(df)} records added")
         except Exception as e:
-            logger.warning(f"  ✗ {symbol}: {str(e)[:50]}")
+            logger.error(f"  ✗ {symbol}: {str(e)}")
     
+    logger.info(f"[FETCH] market_data total: {len(market_data_list)} DataFrames")
     return market_data_list
 
 
@@ -128,8 +123,11 @@ def fetch_fundamentals(vnstock_client) -> List[Dict]:
     
     for symbol in SYMBOLS:
         try:
+            logger.info(f"  Fetching {symbol}...")
             ratio_df = vnstock_client.stock(symbol=symbol).ratio()
             income_df = vnstock_client.stock(symbol=symbol).income_statement()
+            
+            logger.info(f"  {symbol}: ratio_df shape = {ratio_df.shape}, income_df shape = {income_df.shape}")
             
             for idx, row in income_df.iterrows():
                 try:
@@ -152,11 +150,12 @@ def fetch_fundamentals(vnstock_client) -> List[Dict]:
                         'confidence_score': 100
                     }
                     fundamentals_list.append(record)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"    skip row: {str(e)[:50]}")
         except Exception as e:
-            logger.warning(f"  ✗ {symbol}: {str(e)[:50]}")
+            logger.error(f"  ✗ {symbol}: {str(e)}")
     
+    logger.info(f"[FETCH] fundamentals total: {len(fundamentals_list)} records")
     return fundamentals_list
 
 
@@ -164,6 +163,8 @@ def fetch_macro_data(vnstock_client) -> List[Dict]:
     logger.info("[FETCH] macro_data...")
     try:
         macro_df = vnstock_client.macro()
+        logger.info(f"  macro_df shape = {macro_df.shape}")
+        
         macro_list = []
         for idx, row in macro_df.iterrows():
             try:
@@ -182,11 +183,13 @@ def fetch_macro_data(vnstock_client) -> List[Dict]:
                     'confidence_score': 100
                 }
                 macro_list.append(record)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"  skip macro row: {str(e)[:50]}")
+        
+        logger.info(f"[FETCH] macro_data total: {len(macro_list)} records")
         return macro_list
     except Exception as e:
-        logger.warning(f"[FETCH] macro failed: {str(e)[:50]}")
+        logger.error(f"[FETCH] macro failed: {str(e)}")
         return []
 
 
@@ -196,7 +199,10 @@ def fetch_news_data(vnstock_client) -> List[Dict]:
     
     for symbol in SYMBOLS:
         try:
+            logger.info(f"  Fetching news for {symbol}...")
             news_df = vnstock_client.stock(symbol=symbol).news(limit=50)
+            logger.info(f"  {symbol}: news_df shape = {news_df.shape}")
+            
             for idx, row in news_df.iterrows():
                 try:
                     record = {
@@ -213,11 +219,12 @@ def fetch_news_data(vnstock_client) -> List[Dict]:
                         'confidence_score': 80
                     }
                     news_list.append(record)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"    skip news row: {str(e)[:50]}")
         except Exception as e:
-            logger.warning(f"  ✗ {symbol}: {str(e)[:50]}")
+            logger.error(f"  ✗ {symbol} news: {str(e)}")
     
+    logger.info(f"[FETCH] news_intelligence total: {len(news_list)} records")
     return news_list
 
 
@@ -225,6 +232,8 @@ def fetch_market_insights(vnstock_client) -> List[Dict]:
     logger.info("[FETCH] market_insights...")
     try:
         vnindex_df = vnstock_client.stock(symbol='VNINDEX').quote()
+        logger.info(f"  vnindex_df shape = {vnindex_df.shape}")
+        
         record = {
             'date': datetime.now().strftime('%Y-%m-%d'),
             'vnindex_close': float(vnindex_df.iloc[0].get('price', None)) if len(vnindex_df) > 0 else None,
@@ -245,9 +254,10 @@ def fetch_market_insights(vnstock_client) -> List[Dict]:
             'fetch_timestamp': datetime.utcnow().isoformat(),
             'confidence_score': 80
         }
+        logger.info(f"[FETCH] market_insights: {record['vnindex_close']}")
         return [record]
     except Exception as e:
-        logger.warning(f"[FETCH] market_insights failed: {str(e)[:50]}")
+        logger.error(f"[FETCH] market_insights failed: {str(e)}")
         return []
 
 
@@ -304,10 +314,12 @@ def calculate_technicals(market_data_list: List[pd.DataFrame]) -> List[pd.DataFr
             df['resistance_level'] = np.nanmax(highs[~np.isnan(highs)])
             
             enriched_list.append(df)
+            logger.info(f"  ✓ calculated technicals for {df['symbol'].iloc[0]}")
         except Exception as e:
-            logger.warning(f"[CALC] error: {str(e)[:50]}")
+            logger.error(f"  ✗ calc error: {str(e)}")
             enriched_list.append(df)
     
+    logger.info(f"[CALC] enriched {len(enriched_list)} DataFrames")
     return enriched_list
 
 
@@ -316,7 +328,7 @@ def calculate_technicals(market_data_list: List[pd.DataFrame]) -> List[pd.DataFr
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def validate_records(records: List[Dict], table_name: str, threshold: int) -> Tuple[List[Dict], int]:
-    logger.info(f"[VALIDATE] {table_name}...")
+    logger.info(f"[VALIDATE] {table_name} ({len(records)} records)...")
     valid_records = []
     skipped = 0
     
@@ -338,9 +350,12 @@ def validate_records(records: List[Dict], table_name: str, threshold: int) -> Tu
                 valid_records.append(record)
             else:
                 skipped += 1
-        except:
+                logger.debug(f"  skipped (confidence={record.get('confidence_score')})")
+        except Exception as e:
             skipped += 1
+            logger.warning(f"  skip record: {str(e)[:50]}")
     
+    logger.info(f"  Valid: {len(valid_records)}, Skipped: {skipped}")
     return valid_records, skipped
 
 
@@ -370,7 +385,7 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
     }
     
     if not supabase_client:
-        stats['total_failed'] = len(market_data) + len(fundamentals) + len(macro) + len(news) + len(insights)
+        logger.error("[UPSERT] No supabase_client!")
         return stats
     
     if market_data:
@@ -379,8 +394,10 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
             stats['market_data_inserted'] = len(market_data)
             logger.info(f"  ✓ market_data: {len(market_data)}")
         except Exception as e:
-            logger.error(f"  ✗ market_data: {str(e)[:50]}")
+            logger.error(f"  ✗ market_data: {str(e)[:100]}")
             stats['total_failed'] += len(market_data)
+    else:
+        logger.warning("[UPSERT] No market_data to insert!")
     
     if fundamentals:
         try:
@@ -388,8 +405,10 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
             stats['fundamentals_inserted'] = len(fundamentals)
             logger.info(f"  ✓ fundamentals: {len(fundamentals)}")
         except Exception as e:
-            logger.error(f"  ✗ fundamentals: {str(e)[:50]}")
+            logger.error(f"  ✗ fundamentals: {str(e)[:100]}")
             stats['total_failed'] += len(fundamentals)
+    else:
+        logger.warning("[UPSERT] No fundamentals to insert!")
     
     if macro:
         try:
@@ -397,8 +416,10 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
             stats['macro_inserted'] = len(macro)
             logger.info(f"  ✓ macro_data: {len(macro)}")
         except Exception as e:
-            logger.error(f"  ✗ macro_data: {str(e)[:50]}")
+            logger.error(f"  ✗ macro_data: {str(e)[:100]}")
             stats['total_failed'] += len(macro)
+    else:
+        logger.warning("[UPSERT] No macro_data to insert!")
     
     if news:
         try:
@@ -406,8 +427,10 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
             stats['news_inserted'] = len(news)
             logger.info(f"  ✓ news_intelligence: {len(news)}")
         except Exception as e:
-            logger.error(f"  ✗ news_intelligence: {str(e)[:50]}")
+            logger.error(f"  ✗ news_intelligence: {str(e)[:100]}")
             stats['total_failed'] += len(news)
+    else:
+        logger.warning("[UPSERT] No news_intelligence to insert!")
     
     if insights:
         try:
@@ -415,8 +438,10 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
             stats['market_insights_inserted'] = len(insights)
             logger.info(f"  ✓ market_insights: {len(insights)}")
         except Exception as e:
-            logger.error(f"  ✗ market_insights: {str(e)[:50]}")
+            logger.error(f"  ✗ market_insights: {str(e)[:100]}")
             stats['total_failed'] += len(insights)
+    else:
+        logger.warning("[UPSERT] No market_insights to insert!")
     
     return stats
 
@@ -427,7 +452,6 @@ def upsert_to_supabase(supabase_client, market_data, fundamentals, macro, news, 
 
 @app.get("/")
 def root():
-    """Root endpoint"""
     return {
         "name": "SkillVault ETL API",
         "version": "1.0.0",
@@ -438,9 +462,7 @@ def root():
 
 @app.get("/api/health")
 def health():
-    """Health check - app is always UP"""
     supabase, vnstock, error = init_clients_lazy()
-    
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
@@ -452,14 +474,14 @@ def health():
 
 @app.post("/api/etl/run")
 def run_etl():
-    """Run ETL Pipeline - with error handling"""
     logger.info("[START] ETL Pipeline")
+    logger.info("═" * 80)
     
     try:
-        # Lazy init clients
         supabase_client, vnstock_client, init_error = init_clients_lazy()
         
         if init_error:
+            logger.error(f"[FAILED] {init_error}")
             return {
                 "status": "failed",
                 "error": init_error,
@@ -467,23 +489,27 @@ def run_etl():
             }
         
         if not vnstock_client or not supabase_client:
+            logger.error("[FAILED] Clients not initialized")
             return {
                 "status": "failed",
                 "error": "Clients not initialized",
                 "timestamp": datetime.utcnow().isoformat()
             }
         
-        # Fetch
+        # FETCH
+        logger.info("\n[STAGE 2] FETCH")
         market_data_list = fetch_market_data(vnstock_client)
         fundamentals_list = fetch_fundamentals(vnstock_client)
         macro_list = fetch_macro_data(vnstock_client)
         news_list = fetch_news_data(vnstock_client)
         insights_list = fetch_market_insights(vnstock_client)
         
-        # Calculate
+        # CALCULATE
+        logger.info("\n[STAGE 3] CALCULATE")
         market_data_enriched = calculate_technicals(market_data_list)
         
-        # Validate
+        # VALIDATE
+        logger.info("\n[STAGE 4] VALIDATE")
         market_data_records, _ = validate_records(
             dataframe_to_records(pd.concat(market_data_enriched)) if market_data_enriched else [],
             "market_data", 80
@@ -493,10 +519,14 @@ def run_etl():
         news_records, _ = validate_records(news_list, "news_intelligence", 60)
         insights_records, _ = validate_records(insights_list, "market_insights", 80)
         
-        # Upsert
+        # UPSERT
+        logger.info("\n[STAGE 5] UPSERT")
         stats = upsert_to_supabase(supabase_client, market_data_records, fundamentals_records, macro_records, news_records, insights_records)
         
-        logger.info("[SUCCESS]")
+        logger.info("\n" + "═" * 80)
+        logger.info("[SUCCESS] ETL Pipeline complete")
+        logger.info("═" * 80)
+        
         return {
             "status": "success",
             "timestamp": datetime.utcnow().isoformat(),
@@ -505,7 +535,8 @@ def run_etl():
         }
     
     except Exception as e:
-        logger.error(f"[FAILED] {str(e)}")
+        logger.error(f"\n[FAILED] {str(e)}")
+        logger.error("═" * 80)
         return {
             "status": "failed",
             "error": str(e),
