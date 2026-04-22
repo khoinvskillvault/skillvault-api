@@ -100,41 +100,49 @@ def get_stock_history(symbol: str, range: str = "1y"):
 @app.get("/api/stock/{symbol}/fundamentals")
 def get_stock_fundamentals(symbol: str):
     """
-    Get fundamental ratios (P/E, P/B, ROE, etc)
+    Get fundamental ratios (P/E, P/B, ROE, etc) using TCBS API
     Usage: /api/stock/TCB/fundamentals
     """
     sym = symbol.upper()
     try:
-        # Fetch from Yahoo Finance with params for detailed info
-        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{sym}.VN?modules=financialData,defaultKeyStatistics,summaryProfile"
+        # TCBS API endpoint for stock ratios
+        url = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/{sym}/overview"
         r = requests.get(url, headers=HEADERS, timeout=10)
+        
+        if r.status_code != 200:
+            # Fallback: Try vnstock endpoint
+            url = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/{sym}/fundamental"
+            r = requests.get(url, headers=HEADERS, timeout=10)
+        
         raw = r.json()
         
-        result = raw.get("quoteSummary", {}).get("result", [{}])[0]
-        financial_data = result.get("financialData", {})
-        key_stats = result.get("defaultKeyStatistics", {})
-        summary = result.get("summaryProfile", {})
+        # Extract data from TCBS
+        if "stockOverview" in raw:
+            data = raw.get("stockOverview", {})
+        else:
+            data = raw
         
-        # Extract key ratios
-        pe = financial_data.get("trailingPE", {}).get("raw")
-        pb = key_stats.get("priceToBook", {}).get("raw")
-        roe = financial_data.get("returnOnEquity", {}).get("raw")
-        roa = financial_data.get("returnOnAssets", {}).get("raw")
-        
+        # Map TCBS fields to our format
         return {
             "symbol": sym,
-            "pe_ratio": round(pe, 2) if pe else None,
-            "pb_ratio": round(pb, 2) if pb else None,
-            "roe": round(roe * 100, 2) if roe else None,
-            "roa": round(roa * 100, 2) if roa else None,
-            "dividend_yield": key_stats.get("trailingAnnualDividendYield", {}).get("raw"),
-            "market_cap": financial_data.get("marketCap", {}).get("raw"),
-            "eps": financial_data.get("trailingEps", {}).get("raw"),
-            "revenue_ttm": financial_data.get("totalRevenue", {}).get("raw"),
-            "profit_ttm": financial_data.get("totalDebt", {}).get("raw"),
-            "debt_to_equity": financial_data.get("debtToEquity", {}).get("raw"),
+            "pe_ratio": data.get("pe") or data.get("peRatio"),
+            "pb_ratio": data.get("pb") or data.get("pbRatio"),
+            "roe": data.get("roe") or data.get("returnOnEquity"),
+            "roa": data.get("roa") or data.get("returnOnAssets"),
+            "dividend_yield": data.get("dividendYield") or data.get("divyield"),
+            "market_cap": data.get("marketCap"),
+            "eps": data.get("eps"),
+            "revenue_ttm": data.get("revenueIn4Quarter"),
+            "profit_ttm": data.get("profitIn4Quarter"),
+            "debt_to_equity": data.get("debtToEquity") or data.get("debtEquityRatio"),
+            "current_price": data.get("currentPrice") or data.get("price"),
             "status": "success"
         }
     
     except Exception as e:
-        return {"symbol": sym, "error": str(e), "status": "error"}
+        return {
+            "symbol": sym,
+            "error": str(e),
+            "status": "error",
+            "note": "TCBS API returned no data. This is common for less-liquid stocks."
+        }
