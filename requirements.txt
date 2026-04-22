@@ -4,4 +4,4 @@ pandas==2.2.0
 numpy==1.26.4
 python-dotenv==1.0.0
 vnstock
-supabase==2.4.0
+supabase>=2.5.0
