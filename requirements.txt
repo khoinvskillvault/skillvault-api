@@ -3,5 +3,5 @@ uvicorn==0.24.0
 pandas==2.2.0
 numpy==1.26.4
 python-dotenv==1.0.0
-vnstock==1.0.5
+vnstock
 supabase==2.4.0
