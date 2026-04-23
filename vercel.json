@@ -5,5 +5,11 @@
       "use": "@vercel/python",
       "config": { "installCommand": "bash vercel-build.sh" }
     }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.py"
+    }
   ]
 }
