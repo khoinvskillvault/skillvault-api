@@ -3,29 +3,40 @@ import sys
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
-# THÊM ĐOẠN NÀY: Ép Python tìm thư viện trong các thư mục tiềm năng
-sys.path.append(os.path.join(os.getcwd(), ".venv", "lib", "python3.12", "site-packages"))
-sys.path.append("/var/task")
+# --- LỆNH "DẪN DÒNG" ĐẶC BIỆT ---
+# Tìm đường dẫn đến nơi chứa thư viện Member mà Thịnh vừa cài
+path_to_member = os.path.join(os.getcwd(), "vnstock_lib", "lib", "python3.12", "site-packages")
+if os.path.exists(path_to_member):
+    sys.path.append(path_to_member)
+# ------------------------------
 
 load_dotenv()
 app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    # Kiểm tra xem API Key đã vào chưa
-    api_key_status = "Đã nhận" if os.getenv("VNSTOCK_API_KEY") else "Chưa có"
     return {
-        "status": "SkillVault v3.9.Debug",
-        "api_key": api_key_status,
-        "msg": "Đang kiểm tra máy bơm..."
+        "status": "SkillVault v3.9.Final",
+        "lib_check": "Đã kết nối đường ống" if os.path.exists(path_to_member) else "Chưa thấy đường ống"
     }
 
 @app.get("/api/etl/run")
 def trigger_etl():
     try:
-        # Kiểm tra xem có import được không
-        import vnstock_data
-        return {"msg": "Kết nối Vnstock Member thành công!"}
+        # Giờ Python sẽ thấy được vnstock_data
+        from vnstock_data import vnstock_data
+        
+        df = vnstock_data.stock_historical_data(
+            symbol="TCB", 
+            start_date='2024-01-01', 
+            end_date='2026-04-23',
+            resolution='1D', 
+            type='stock'
+        )
+        return {"msg": "Nước đã về kho Member!", "data_count": len(df)}
     except Exception as e:
-        # Nếu lỗi, nó sẽ báo chính xác lỗi gì ở đây
-        return {"msg": "Máy bơm vẫn kẹt", "error_detail": str(e)}
+        return {
+            "msg": "Máy bơm vẫn kẹt",
+            "error_detail": str(e),
+            "check_path": path_to_member
+        }
