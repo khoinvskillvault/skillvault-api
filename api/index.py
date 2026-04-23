@@ -24,28 +24,45 @@ def fetch_data(symbol, token):
     }
     try:
         res = requests.get(url, headers=headers, params=params, timeout=20)
+        # LOG ĐỂ KIỂM SOÁT TẠI VERCEL
+        print(f"🔍 Kiểm tra {symbol}: Status {res.status_code}")
+        
         if res.status_code == 200:
-            return pd.DataFrame(res.json().get('data', []))
-        return None
-    except:
+            json_data = res.json()
+            # In một phần dữ liệu để xem cấu trúc thực tế
+            print(f"📦 Dữ liệu thô {symbol}: {str(json_data)[:100]}...")
+            
+            # Kiểm tra các trường hợp key khác nhau
+            data = json_data.get('data', json_data)
+            return pd.DataFrame(data)
+        else:
+            print(f"❌ Server Vnstock báo lỗi: {res.text}")
+            return None
+    except Exception as e:
+        print(f"💥 Lỗi kết nối: {str(e)}")
         return None
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final - Synchronous"}
+    return {"status": "SkillVault v3.9.Debug"}
 
-@app.get("/api/etl/run") # Đổi sang GET để anh dán link vào trình duyệt chạy cho tiện
+@app.get("/api/etl/run")
 def trigger_etl():
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
     token = os.getenv("VNSTOCK_TOKEN")
-    results = []
     
+    # Kiểm tra Token có tồn tại không
+    if not token:
+        return {"error": "Thiếu VNSTOCK_TOKEN trong Environment Variables"}
+        
+    results = []
     for s in ["TCB", "MSN", "VHM"]:
         df = fetch_data(s, token)
         if df is not None and not df.empty:
             df['symbol'] = s
+            # Chuyển đổi tên cột nếu cần (Vnstock v2 đôi khi dùng tên khác)
             clean_records = df.where(pd.notnull(df), None).to_dict(orient='records')
             supabase.table("market_data").upsert(clean_records, on_conflict="symbol,date").execute()
             results.append(s)
     
-    return {"message": "Dòng chảy đã hoàn tất trực tiếp", "updated": results}
+    return {"message": "Kết quả chạy thử nghiệm", "updated": results, "token_check": "OK" if token else "Empty"}
