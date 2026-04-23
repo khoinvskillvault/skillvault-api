@@ -4,5 +4,8 @@ fastapi==0.104.1
 uvicorn==0.24.0
 pandas==2.2.2
 requests==2.32.4
-supabase==2.4.0
+supabase==2.11.0
 python-dotenv==1.0.0
+# Cố định phiên bản con để tránh lỗi 'proxy'
+postgrest==0.19.2
+gotrue==2.16.2
