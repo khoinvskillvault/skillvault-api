@@ -15,9 +15,17 @@ load_dotenv()
 app = FastAPI()
 
 def fetch_silver_data(symbol, token):
-    # Đây là đường ống trực tiếp, không thông qua hàm history() dễ lỗi của thư viện
     url = "https://api.vnstock.site/v2/stock/quote/history"
-    headers = {"Authorization": f"Bearer {token}"}
+    
+    # THÊM HEADERS ĐỂ "LÀM QUEN" VỚI SERVER
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Origin": "https://vnstock.site",
+        "Referer": "https://vnstock.site/"
+    }
+    
     params = {
         "symbol": symbol,
         "from": "2024-01-01",
@@ -25,10 +33,22 @@ def fetch_silver_data(symbol, token):
         "resolution": "1D",
         "type": "stock"
     }
-    res = requests.get(url, headers=headers, params=params, timeout=15)
-    if res.status_code == 200:
-        return pd.DataFrame(res.json()['data'] if 'data' in res.json() else res.json())
-    return None
+
+    # SỬ DỤNG SESSION ĐỂ TRÁNH MAX RETRIES
+    session = requests.Session()
+    try:
+        res = session.get(url, headers=headers, params=params, timeout=20)
+        if res.status_code == 200:
+            json_data = res.json()
+            # Xử lý trường hợp dữ liệu trả về nằm trong key 'data'
+            records = json_data.get('data', json_data)
+            return pd.DataFrame(records)
+        else:
+            print(f"⚠️ Server trả lỗi {res.status_code} cho {symbol}")
+            return None
+    except Exception as e:
+        print(f"❌ Lỗi kết nối khi lấy {symbol}: {str(e)}")
+        return None
 
 def run_etl_process():
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
@@ -37,26 +57,26 @@ def run_etl_process():
     
     for symbol in symbols:
         try:
-            print(f"🚀 SkillVault đang rút dữ liệu trực tiếp cho {symbol}...")
+            print(f"🚀 SkillVault đang 'thông quan' dữ liệu cho {symbol}...")
             df = fetch_silver_data(symbol, token)
             
             if df is not None and not df.empty:
                 df['symbol'] = symbol
                 df['fetch_timestamp'] = datetime.utcnow().isoformat()
-                # Làm sạch dữ liệu để Supabase không từ chối
+                # Ép kiểu dữ liệu để tránh lỗi JSON của Supabase
                 data = df.where(pd.notnull(df), None).to_dict(orient='records')
                 supabase.table("market_data").upsert(data, on_conflict="symbol,date").execute()
-                print(f"✅ Đã đổ dữ liệu {symbol} vào nhà kho.")
+                print(f"✅ Đã đổ dữ liệu {symbol} vào kho thành công.")
             else:
-                print(f"⚠️ Không lấy được dữ liệu cho {symbol}")
+                print(f"⚠️ Dữ liệu {symbol} trống, bỏ qua.")
         except Exception as e:
-            print(f"❌ Lỗi tại {symbol}: {e}")
+            print(f"❌ Lỗi xử lý tại {symbol}: {e}")
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final Ready", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "SkillVault v3.9.Final - Hardened", "timestamp": datetime.utcnow().isoformat()}
 
 @app.post("/api/etl/run")
 def trigger_etl(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_etl_process)
-    return {"message": "Dòng chảy trực tiếp đã bắt đầu.", "symbols": ["TCB", "MSN", "VHM"]}
+    return {"message": "Dòng chảy đã được gia cố và bắt đầu chạy."}
