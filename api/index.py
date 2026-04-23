@@ -6,32 +6,31 @@ from supabase import create_client
 from dotenv import load_dotenv
 import time
 
-# Đổi sang import từ vnstock_data theo chuẩn mới của Member
+# Chỉnh đúng tên thư viện từ tài liệu anh vừa gửi
 try:
-    from vnstock_data import vnstock_data
-except ImportError:
-    # Fallback dự phòng
     import vnstock_data
+except ImportError:
+    # Dự phòng nếu hệ thống yêu cầu gọi cụ thể hơn
+    from vnstock_data import vnstock_data
 
 load_dotenv()
 app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final", "engine": "Vnstock-Data 3.1.2 Member"}
+    return {"status": "SkillVault v3.9.Final", "engine": "Vnstock-Data Member Certified"}
 
 @app.get("/api/etl/run")
 def trigger_etl(s: str = Query(None)):
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
     
     target_symbols = [item.strip().upper() for item in s.split(",")] if s else ["TCB", "MSN", "VHM", "HPG"]
-
     results = []
     failed = {}
 
     for symbol in target_symbols:
         try:
-            # Sử dụng hàm historical data từ gói vnstock_data
+            # Sử dụng hàm lấy dữ liệu từ gói chuẩn vnstock_data
             df = vnstock_data.stock_historical_data(
                 symbol=symbol, 
                 start_date='2024-01-01', 
@@ -41,7 +40,6 @@ def trigger_etl(s: str = Query(None)):
             )
 
             if df is not None and not df.empty:
-                # Đồng bộ tên cột
                 if 'time' in df.columns:
                     df = df.rename(columns={'time': 'date'})
                 
@@ -55,14 +53,8 @@ def trigger_etl(s: str = Query(None)):
                 results.append(symbol)
                 time.sleep(0.5)
             else:
-                failed[symbol] = "Source returned empty"
-
+                failed[symbol] = "Empty data"
         except Exception as e:
             failed[symbol] = str(e)
 
-    return {
-        "status": "Success",
-        "updated": results,
-        "failed": failed,
-        "total": len(results)
-    }
+    return {"status": "Success", "updated": results, "failed": failed}
