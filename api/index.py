@@ -6,11 +6,11 @@ from supabase import create_client
 from dotenv import load_dotenv
 import time
 
-# Import an toàn cho bản 3.1.2
+# Đổi sang import từ vnstock_data theo chuẩn mới của Member
 try:
-    from vnstock import vnstock_data
+    from vnstock_data import vnstock_data
 except ImportError:
-    # Phòng trường hợp tên package trên server là vnstock_data
+    # Fallback dự phòng
     import vnstock_data
 
 load_dotenv()
@@ -18,13 +18,12 @@ app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final", "engine": "Vnstock 3.1.2 Stable"}
+    return {"status": "SkillVault v3.9.Final", "engine": "Vnstock-Data 3.1.2 Member"}
 
 @app.get("/api/etl/run")
 def trigger_etl(s: str = Query(None)):
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
     
-    # Danh sách mã mặc định nếu anh không điền ?s=
     target_symbols = [item.strip().upper() for item in s.split(",")] if s else ["TCB", "MSN", "VHM", "HPG"]
 
     results = []
@@ -32,7 +31,7 @@ def trigger_etl(s: str = Query(None)):
 
     for symbol in target_symbols:
         try:
-            # Gọi hàm theo chuẩn REST API mới của bản 3.1.2
+            # Sử dụng hàm historical data từ gói vnstock_data
             df = vnstock_data.stock_historical_data(
                 symbol=symbol, 
                 start_date='2024-01-01', 
@@ -42,30 +41,28 @@ def trigger_etl(s: str = Query(None)):
             )
 
             if df is not None and not df.empty:
-                # Chuẩn hóa cột (Vnstock 3.1.x dùng 'time' hoặc 'date')
+                # Đồng bộ tên cột
                 if 'time' in df.columns:
                     df = df.rename(columns={'time': 'date'})
                 
-                # Bổ sung thông tin kiểm soát
                 df['symbol'] = symbol
                 df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
                 df['fetch_timestamp'] = datetime.utcnow().isoformat()
 
-                # Đẩy dữ liệu vào kho (Upsert để tránh trùng)
                 data = df.where(pd.notnull(df), None).to_dict(orient='records')
                 supabase.table("market_data").upsert(data, on_conflict="symbol,date").execute()
                 
                 results.append(symbol)
-                time.sleep(0.5) # Nghỉ ngắn để tránh nghẽn
+                time.sleep(0.5)
             else:
-                failed[symbol] = "Data Empty from Source"
+                failed[symbol] = "Source returned empty"
 
         except Exception as e:
             failed[symbol] = str(e)
 
     return {
-        "status": "Process Completed",
+        "status": "Success",
         "updated": results,
         "failed": failed,
-        "total_updated": len(results)
+        "total": len(results)
     }
