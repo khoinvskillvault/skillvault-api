@@ -3,34 +3,36 @@ import pandas as pd
 from datetime import datetime
 from fastapi import FastAPI, Query
 from supabase import create_client
-from vnstock import vnstock_data
 from dotenv import load_dotenv
 import time
+
+# Import an toàn cho bản 3.1.2
+try:
+    from vnstock import vnstock_data
+except ImportError:
+    # Phòng trường hợp tên package trên server là vnstock_data
+    import vnstock_data
 
 load_dotenv()
 app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final - Compatible with 3.1.3"}
+    return {"status": "SkillVault v3.9.Final", "engine": "Vnstock 3.1.2 Stable"}
 
 @app.get("/api/etl/run")
 def trigger_etl(s: str = Query(None)):
-    # 1. Khởi tạo kết nối
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
     
-    # 2. Xác định danh sách mã cần lấy
-    if s:
-        target_symbols = [item.strip().upper() for item in s.split(",")]
-    else:
-        target_symbols = ["TCB", "MSN", "VHM", "HPG"] # Thêm HPG làm mã đối chứng
+    # Danh sách mã mặc định nếu anh không điền ?s=
+    target_symbols = [item.strip().upper() for item in s.split(",")] if s else ["TCB", "MSN", "VHM", "HPG"]
 
     results = []
     failed = {}
 
     for symbol in target_symbols:
         try:
-            # 3. Lấy dữ liệu từ Vnstock 3.1.3 (Dùng REST API mới ngầm định)
+            # Gọi hàm theo chuẩn REST API mới của bản 3.1.2
             df = vnstock_data.stock_historical_data(
                 symbol=symbol, 
                 start_date='2024-01-01', 
@@ -40,35 +42,30 @@ def trigger_etl(s: str = Query(None)):
             )
 
             if df is not None and not df.empty:
-                # 4. Chuẩn hóa dữ liệu cho Supabase
-                # Vnstock 3.1.3 thường trả về: time, open, high, low, close, volume
-                # Chúng ta đổi tên 'time' thành 'date' để khớp với bảng của anh
+                # Chuẩn hóa cột (Vnstock 3.1.x dùng 'time' hoặc 'date')
                 if 'time' in df.columns:
                     df = df.rename(columns={'time': 'date'})
                 
-                # Ép kiểu dữ liệu để đảm bảo an toàn
+                # Bổ sung thông tin kiểm soát
                 df['symbol'] = symbol
-                df['fetch_timestamp'] = datetime.utcnow().isoformat()
                 df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                df['fetch_timestamp'] = datetime.utcnow().isoformat()
 
-                # Chuyển thành list dict để Upsert
+                # Đẩy dữ liệu vào kho (Upsert để tránh trùng)
                 data = df.where(pd.notnull(df), None).to_dict(orient='records')
-                
-                # 5. Đổ vào kho
                 supabase.table("market_data").upsert(data, on_conflict="symbol,date").execute()
-                results.append(symbol)
                 
-                # Nghỉ 1 giây để "đi nhẹ nói khẽ" với server
-                time.sleep(1)
+                results.append(symbol)
+                time.sleep(0.5) # Nghỉ ngắn để tránh nghẽn
             else:
-                failed[symbol] = "Dữ liệu trống (Empty)"
+                failed[symbol] = "Data Empty from Source"
 
         except Exception as e:
-            failed[symbol] = f"Lỗi: {str(e)}"
+            failed[symbol] = str(e)
 
     return {
-        "message": "Nghiệm thu SkillVault v3.1.3",
-        "updated_count": len(results),
-        "updated_symbols": results,
-        "failed_info": failed
+        "status": "Process Completed",
+        "updated": results,
+        "failed": failed,
+        "total_updated": len(results)
     }
