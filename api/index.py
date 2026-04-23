@@ -1,27 +1,31 @@
 import os
+import sys
 from fastapi import FastAPI
-from supabase import create_client
-from vnstock_data import vnstock_data # Import chuẩn theo link anh Thịnh gửi
 from dotenv import load_dotenv
+
+# THÊM ĐOẠN NÀY: Ép Python tìm thư viện trong các thư mục tiềm năng
+sys.path.append(os.path.join(os.getcwd(), ".venv", "lib", "python3.12", "site-packages"))
+sys.path.append("/var/task")
 
 load_dotenv()
 app = FastAPI()
 
 @app.get("/api/health")
 def health():
-    return {"status": "SkillVault v3.9.Final", "auth": "Member Verified"}
+    # Kiểm tra xem API Key đã vào chưa
+    api_key_status = "Đã nhận" if os.getenv("VNSTOCK_API_KEY") else "Chưa có"
+    return {
+        "status": "SkillVault v3.9.Debug",
+        "api_key": api_key_status,
+        "msg": "Đang kiểm tra máy bơm..."
+    }
 
 @app.get("/api/etl/run")
 def trigger_etl():
-    # Máy bơm sẽ tự động dùng VNSTOCK_API_KEY từ Environment Variable
     try:
-        df = vnstock_data.stock_historical_data(
-            symbol="TCB", 
-            start_date='2024-01-01', 
-            end_date='2026-04-23',
-            resolution='1D', 
-            type='stock'
-        )
-        return {"msg": "Dữ liệu đã về!", "count": len(df)}
+        # Kiểm tra xem có import được không
+        import vnstock_data
+        return {"msg": "Kết nối Vnstock Member thành công!"}
     except Exception as e:
-        return {"error": str(e)}
+        # Nếu lỗi, nó sẽ báo chính xác lỗi gì ở đây
+        return {"msg": "Máy bơm vẫn kẹt", "error_detail": str(e)}
